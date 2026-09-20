@@ -2,4 +2,3 @@ aiogram
 asyncio
 logging
 flask
-os
