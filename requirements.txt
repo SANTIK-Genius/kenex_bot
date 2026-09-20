@@ -1,3 +1,6 @@
 aiogram
 asyncio
 logging
+flask
+threading
+os
