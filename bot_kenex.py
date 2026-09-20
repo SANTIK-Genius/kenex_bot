@@ -1,5 +1,9 @@
 import asyncio
 import logging
+import os
+from threading import Thread
+
+from flask import Flask
 
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
@@ -8,8 +12,9 @@ from aiogram.filters import CommandStart
 from aiogram.types import Message
 
 # ======================= НАСТРОЙКИ =======================
-BOT_TOKEN = "8822608059:AAGIt8tu0IcXOQ_RJIUsQ0PZZe7h-BuZFFY"
-GROUP_ID = -5568247151
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8822608059:AAGIt8tu0IcXOQ_RJIUsQ0PZZe7h-BuZFFY")
+GROUP_ID = int(os.getenv("GROUP_ID", "-5568247151"))
+PORT = int(os.getenv("PORT", 8080))
 # =========================================================
 
 logging.basicConfig(level=logging.WARNING)
@@ -24,11 +29,28 @@ dp.include_router(router)
 message_to_user: dict[int, int] = {}
 banned_users: set[int] = set()
 
-
 WELCOME_TEXT = (
     "Приветствую, оставьте пожалуйста свою заявку детально распишите: "
     "какую рекламу вы хотите, что за продукт, @username для связи"
 )
+
+# ================== ВЕБ-СЕРВЕР ДЛЯ RENDER ==================
+flask_app = Flask(__name__)
+
+
+@flask_app.route("/")
+def health():
+    return "Bot is alive", 200
+
+
+@flask_app.route("/health")
+def health_check():
+    return "ok", 200
+
+
+def run_flask():
+    flask_app.run(host="0.0.0.0", port=PORT)
+# ===========================================================
 
 
 @router.message(CommandStart())
@@ -39,7 +61,6 @@ async def cmd_start(message: Message):
     await message.answer(WELCOME_TEXT)
 
 
-# ---------- Сообщения от пользователей в боте ----------
 @router.message(F.chat.type == "private")
 async def handle_user_message(message: Message):
     user = message.from_user
@@ -64,7 +85,6 @@ async def handle_user_message(message: Message):
     await message.answer("Ваша заявка отправлена менеджеру. Ожидайте ответа.")
 
 
-# ---------- Ответ менеджера в группе (реплай на сообщение бота) ----------
 @router.message(F.chat.id == GROUP_ID, F.reply_to_message)
 async def handle_manager_reply(message: Message):
     replied = message.reply_to_message
@@ -79,7 +99,6 @@ async def handle_manager_reply(message: Message):
     text = message.text or message.caption or ""
 
     if text.startswith("/ban"):
-        # Извлекаем причину
         parts = text.split(maxsplit=1)
         reason = parts[1].strip() if len(parts) > 1 else "причина не указана"
 
@@ -100,7 +119,6 @@ async def handle_manager_reply(message: Message):
         await message.reply(f"Пользователь {user_id} забанен. Причина: {reason}")
         return
 
-    # ---------- /unban ------------
     if text.startswith("/unban"):
         if user_id in banned_users:
             banned_users.discard(user_id)
@@ -116,7 +134,6 @@ async def handle_manager_reply(message: Message):
             await message.reply(f"Пользователь {user_id} не в бане.")
         return
 
-    # ---------- Обычный ответ ----------
     reply_text = f"Ответ от менеджера:\n\n{text}"
 
     try:
@@ -127,7 +144,10 @@ async def handle_manager_reply(message: Message):
 
 
 async def main():
-    print("Бот запущен...")
+    # Запускаем Flask в фоновом потоке — Render увидит открытый порт
+    Thread(target=run_flask, daemon=True).start()
+
+    print("Бот запущен, веб-сервер слушает порт", PORT)
     await dp.start_polling(bot)
 
 
